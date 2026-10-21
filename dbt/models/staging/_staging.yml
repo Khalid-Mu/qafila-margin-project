@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: stg_supplier_prices
+    description: One row per supplier file row. Cost parsed from unit_cost / cost_sar, SKU trimmed. Nothing filtered.
+    columns:
+      - name: source_file
+        tests: [not_null]
+      - name: raw_cost
+        description: The cost exactly as written in the file.
+
+  - name: stg_products
+    description: One row per product, SKU trimmed.
+    columns:
+      - name: product_id
+        tests: [unique, not_null]
+      - name: sku
+        tests: [unique, not_null]
+
+  - name: stg_stores
+    description: One row per store.
+    columns:
+      - name: store_id
+        tests: [unique, not_null]
+
+  - name: stg_orders
+    description: One row per order, with the Riyadh order date.
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: order_date
+        tests: [not_null]
+
+  - name: stg_order_items
+    description: One row per order line, with its revenue.
+    columns:
+      - name: product_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('stg_products')
+                field: product_id
