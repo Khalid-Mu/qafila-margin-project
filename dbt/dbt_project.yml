@@ -20,3 +20,14 @@ models:
     quality:
       +schema: quality
       +materialized: table
+
+vars:
+  # Rule 7: the first supplier week. The only date the brief allows to be fixed.
+  first_supplier_week: "2026-08-31"
+
+data_tests:
+  qafila_margin:
+    # Tests on the source data are assumptions about what the app sends: report them, don't stop the
+    # pipeline. Tests on silver / gold / quality protect the rules and fail the build.
+    staging:
+      +severity: warn

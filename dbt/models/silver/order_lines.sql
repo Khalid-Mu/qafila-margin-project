@@ -1,13 +1,11 @@
 -- Grain: one row per counted order line (rule 7), with what the margin needs:
 -- the Riyadh order date, its ISO week, the store's city and the product's category and SKU.
 
-{% set first_supplier_week = '2026-08-31' %}
-
 with orders as (
 
     select * from {{ ref('stg_orders') }}
     where status = 'delivered'
-      and order_date >= date '{{ first_supplier_week }}'
+      and order_date >= date '{{ var("first_supplier_week") }}'
 
 ),
 
