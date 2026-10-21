@@ -126,7 +126,42 @@ def publish(db: Path, warehouse: Path) -> None:
     how we see what a number was before the supplier's correction arrived.
     """
     catalog = get_catalog(warehouse)
-    raise NotImplementedError("Step 5: publish the models to Iceberg")
+    with duckdb.connect(str(db), read_only=True) as con:
+        new_data = {name: con.sql(f"SELECT * FROM {rel} ORDER BY ALL").to_arrow_table()
+                    for name, (rel, _) in PUBLISH.items()}
+
+    for name, data in new_data.items():
+        keys = PUBLISH[name][1]
+        catalog.create_namespace_if_not_exists(name.split(".")[0])
+        try:
+            table = catalog.load_table(name)
+        except NoSuchTableError:
+            table = catalog.create_table(name, schema=data.schema)
+            table.append(data)
+            print(f"{name}: created, {data.num_rows:,} rows")
+            continue
+
+        current = table.scan().to_arrow()
+        if _same_rows(current, data, keys):
+            # Idempotence: same data -> no write, no new snapshot.
+            print(f"{name}: unchanged, {data.num_rows:,} rows")
+            continue
+        # The data changed (e.g. a correction file arrived): overwrite in place. Iceberg keeps the
+        # previous snapshot, so the old numbers stay readable with time travel.
+        with table.update_schema() as update:
+            update.union_by_name(data.schema)
+        table.overwrite(data)
+        print(f"{name}: overwritten, {current.num_rows:,} -> {data.num_rows:,} rows")
+
+
+def _same_rows(current: pa.Table, new: pa.Table, keys: list[str]) -> bool:
+    """True when both tables hold the same rows in the published columns, regardless of row order."""
+    if current.num_rows != new.num_rows or set(new.column_names) - set(current.column_names):
+        return False
+    order = [(k, "ascending") for k in keys]
+    a = current.select(new.column_names).sort_by(order).cast(new.schema, safe=False)
+    b = new.sort_by(order)
+    return a.equals(b)
 
 
 def main() -> None:
