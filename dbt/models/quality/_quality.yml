@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: price_quarantine
+    description: One row per supplier file row that cannot be used, with the reason.
+    columns:
+      - name: source_file
+        tests: [not_null]
+      - name: raw_cost
+        description: The cost exactly as it appeared in the file.
+      - name: reason
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['unknown_sku', 'invalid_cost']
