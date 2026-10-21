@@ -118,8 +118,4 @@ I also checked the outputs against an independent reimplementation of the rules 
 
 ## AI assistance
 
-This project was built with Claude (Anthropic's AI assistant), working in a cloud workspace at my request. Claude:
-- wrote `ingest()` and `publish()` in `run.py`, the dbt models and tests, and this README,
-- checked the results against an independent pandas reimplementation of the brief's rules on three seeds.
-
-I directed the work and reviewed the result.
+I did the fork, Claude did the work. (:
