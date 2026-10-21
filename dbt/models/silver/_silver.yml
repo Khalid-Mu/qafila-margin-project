@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: int_supplier_price_checks
+    description: One row per supplier file row, with reject_reason (unknown_sku, invalid_cost or NULL when usable).
+
+  - name: int_supplier_costs
+    description: One row per (sku, valid_from). The winning usable quote; the file that sorts last wins.
+
+  - name: product_cost_history
+    description: >
+      SCD2 history of supplier costs. One row per SKU per cost version. A version starts only when the
+      cost changes; valid_to is the next version's valid_from (exclusive) and NULL for the current one.
+    columns:
+      - name: sku
+        tests: [not_null]
+      - name: unit_cost_sar
+        tests: [not_null]
+      - name: valid_from
+        tests: [not_null]
+      - name: is_current
+        tests: [not_null]
+
+  - name: order_lines
+    description: One row per counted order line (delivered, quantity > 0, Riyadh order date on or after 2026-08-31).
+    columns:
+      - name: order_date
+        tests: [not_null]
+      - name: city
+        tests: [not_null]
+      - name: category
+        tests: [not_null]

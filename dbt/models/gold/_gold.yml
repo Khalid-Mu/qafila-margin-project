@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: weekly_margin
+    description: >
+      Gross margin per ISO week, city and category. One row per iso_week x city x category with at least
+      one counted order line. Each line is costed at the version valid on its Riyadh order date.
+    columns:
+      - name: iso_week
+        tests: [not_null]
+      - name: city
+        tests: [not_null]
+      - name: category
+        tests: [not_null]
+      - name: lines
+        tests: [not_null]
+      - name: revenue_sar
+        tests: [not_null]
