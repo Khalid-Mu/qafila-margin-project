@@ -21,6 +21,8 @@ import duckdb
 import pyarrow as pa
 from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.exceptions import NoSuchTableError
+from pyiceberg.io.pyarrow import _dataframe_to_data_files
+from pyiceberg.table import Table
 
 DBT_DIR = Path(__file__).resolve().parent / "dbt"
 
@@ -150,8 +152,26 @@ def publish(db: Path, warehouse: Path) -> None:
         # previous snapshot, so the old numbers stay readable with time travel.
         with table.update_schema() as update:
             update.union_by_name(data.schema)
-        table.overwrite(data)
+        _replace_rows(table, data)
         print(f"{name}: overwritten, {current.num_rows:,} -> {data.num_rows:,} rows")
+
+
+def _replace_rows(table: Table, data: pa.Table) -> None:
+    """Swap every data file for the new rows in ONE `overwrite` snapshot.
+
+    `Table.overwrite()` would commit two snapshots, an empty `delete` and then an `append`, so the
+    snapshot just before the current one would hold no rows. Doing it as one snapshot keeps
+    "the previous snapshot" = the previous version of the table.
+    """
+    old_files = [task.file for task in table.scan().plan_files()]
+    data = data.cast(table.schema().as_arrow())
+    with table.transaction() as tx:
+        with tx.update_snapshot().overwrite() as overwrite:
+            for f in old_files:
+                overwrite.delete_data_file(f)
+            for f in _dataframe_to_data_files(table_metadata=tx.table_metadata, df=data, io=table.io,
+                                              write_uuid=overwrite.commit_uuid):
+                overwrite.append_data_file(f)
 
 
 def _same_rows(current: pa.Table, new: pa.Table, keys: list[str]) -> bool:
