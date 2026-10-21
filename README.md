@@ -34,7 +34,7 @@ uv run python tools/check.py              # contract self-check
 
 **How each order line finds its cost:** `weekly_margin` left-joins each counted line to the history on `sku` and `valid_from <= order_date AND (valid_to IS NULL OR order_date < valid_to)`. Versions never overlap, so a line matches at most one version. A line with no match is uncosted: it is counted in `lines`, `revenue_sar` and `uncosted_lines`, but not in `costed_revenue_sar` or `cost_sar`.
 
-`publish()` reads the three dbt tables and compares each with the current Iceberg table, sorted on its key. If they are identical it writes nothing, so a second run creates no new snapshot. If they differ it calls `table.overwrite()`, which updates the table in place and keeps the earlier snapshots for time travel. A table is created only if it doesn't exist yet.
+`publish()` reads the three dbt tables and compares each with the current Iceberg table, sorted on its key. If they are identical it writes nothing, so a second run creates no new snapshot. If they differ, it swaps the table's data files for the new rows in **one `overwrite` snapshot**, updating the table in place. I didn't use `Table.overwrite()`, which commits an empty `delete` snapshot followed by an `append`, so the snapshot before the current one would hold no rows. With a single snapshot, the current snapshot's parent is always the previous version of the table. A table is created only if it doesn't exist yet.
 
 ## Data problems I found
 
@@ -53,12 +53,17 @@ Counts are for the course dataset (seed 2026).
 | Same SKU and `valid_from` in two files | W39 vs `W39_fix` | 5 renegotiated prices (+4 fixes for quarantined rows) | Last file name wins |
 | Zero or negative quantities | `order_items` | 142 lines | Excluded by `quantity > 0` |
 | Order date is in UTC, the business day is Riyadh | `orders.created_at` | 712 orders on a different date than their UTC date (7 delivered orders move from 30 Aug into 31 Aug) | `created_at + 3 h`, then the date |
-| Delivered orders before the first supplier week | `orders` | 18,523 orders | Excluded by `order_date >= 2026-08-31` |
+| Delivered orders before the first supplier week | `orders` | 18,523 orders | Excluded by `order_date >= var('first_supplier_week')` (2026-08-31, set once in `dbt_project.yml`) |
 | Lines sold before a SKU's first quote, or never quoted | order lines × supplier files | 20,626 lines, 190 SKUs (28 products never quoted) | Kept as uncosted: in `lines` and revenue, not in cost |
 
 ## Tests
 
-`dbt build` runs 33 tests. These are the ones that protect the rules:
+`dbt build` runs 33 tests.
+
+- **Tests on silver, gold and quality** protect the rules. They have severity `error`, so a broken rule stops the build before anything is published.
+- **Tests on staging** check assumptions about the source data, such as unique SKUs or that every order line has a known product. They have severity `warn`, so an unexpected quirk in a new dataset is reported without stopping the pipeline.
+
+The tests that protect the rules:
 
 | Test | On | What it protects against |
 |---|---|---|
@@ -85,26 +90,26 @@ run 3 (+ W39_fix)     silver.product_cost_history: overwritten, 633 -> 637 rows 
 run 4 (same data)     all three: unchanged
 ```
 
-The second run writes no new snapshot. The correction adds an overwrite snapshot, and the older snapshot still holds the old numbers:
+The second run writes no new snapshot. The correction adds one `overwrite` snapshot, whose parent still holds the old numbers. Snapshot list after run 4: `['append', 'overwrite']`.
 
 | `gold.weekly_margin` snapshot | When | Total margin (SAR) | Week 39 cost (SAR) | Week 39 margin (SAR) |
 |---|---|---|---|---|
-| `6933132862047057413` | before the correction | 801,016.88 | 519,954.96 | 248,962.65 |
-| `4530446722160063855` | after the correction | 803,515.80 | 518,152.53 | 250,765.08 |
+| `640655077669044539` (append) | before the correction | 801,016.88 | 519,954.96 | 248,962.65 |
+| `5227919558735769726` (overwrite) | after the correction | 803,515.80 | 518,152.53 | 250,765.08 |
 
 ```python
 t = get_catalog(Path("warehouse")).load_table("gold.weekly_margin")
-t.scan(snapshot_id=t.snapshots()[0].snapshot_id).to_pandas()   # pre-correction numbers
+t.scan(snapshot_id=t.current_snapshot().parent_snapshot_id).to_pandas()   # pre-correction numbers
 ```
 
 Snapshot ids change on every fresh run; the numbers don't.
 
-I also checked the outputs against an independent reimplementation of the rules in plain pandas. It is not part of the repo; it doesn't use dbt or DuckDB. On seed 2026 and on seed 11 (`make_data.py --seed 11 --out data_11`), before and after the correction, it gave:
+I also checked the outputs against an independent reimplementation of the rules in plain pandas. It is not part of the repo; it doesn't use dbt or DuckDB. On seeds 2026, 11 and 7 (`make_data.py --seed 11 --out data_11`), before and after the correction, it gave:
 - every SKU's cost history identical,
 - every `weekly_margin` row matching within 0.02 SAR,
 - the same quarantine rows.
 
-`tools/check.py` passes 22/22 on both seeds.
+`tools/check.py` passes 22/22 on all three seeds.
 
 ## What I'd do next
 
@@ -115,6 +120,6 @@ I also checked the outputs against an independent reimplementation of the rules 
 
 This project was built with Claude (Anthropic's AI assistant), working in a cloud workspace at my request. Claude:
 - wrote `ingest()` and `publish()` in `run.py`, the dbt models and tests, and this README,
-- checked the results against an independent pandas reimplementation of the brief's rules on two seeds.
+- checked the results against an independent pandas reimplementation of the brief's rules on three seeds.
 
 I directed the work and reviewed the result.
