@@ -118,4 +118,4 @@ I also checked the outputs against an independent reimplementation of the rules 
 
 ## AI assistance
 
-I did the fork, Claude did the work. (:
+I did the fork, Claude did the rest of the work. (:
